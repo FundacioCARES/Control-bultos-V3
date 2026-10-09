@@ -1,881 +1,273 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Registro Automático de Bultos</title>
-    <style>
-        html, body { overscroll-behavior: none; }
-        body { font-family: Arial, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        .container { max-width: 600px; width: 100%; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        h2 { text-align: center; color: #333; margin-top: 0; }
-        .setup-box, .prendas-box, .manip-box { margin-bottom: 20px; background: #e1dfdd; padding: 15px; border-radius: 4px; text-align: center; }
-        .prendas-box { background: #fff4ce; border: 2px solid #ffaa44; display: none; }
-        .manip-box { background: #e8f0fe; border: 2px solid #0078d4; display: none; text-align: left; }
-        .manip-box h3 { text-align: center; margin-top: 0; }
-        .manip-list { max-height: 260px; overflow-y: auto; border: 1px solid #ccc; border-radius: 4px; background: white; margin-bottom: 10px; }
-        .manip-item { padding: 12px 14px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 16px; }
-        .manip-item:last-child { border-bottom: none; }
-        .manip-item:hover, .manip-item:active { background: #f0f6fc; }
-        .counter { font-size: 26px; font-weight: bold; text-align: center; margin: 15px 0; color: #0078d4; }
-        .manip-actual { text-align: center; font-size: 20px; font-weight: 700; color: #333; margin-top: -8px; margin-bottom: 12px; }
-        .bottom-counter { background-color: #f0f6fc; border: 2px solid #0078d4; color: #005a9e; padding: 12px; font-size: 20px; font-weight: bold; text-align: center; border-radius: 6px; margin-top: 15px; }
-        .productividad { background-color: #eaf7ea; border: 2px solid #107c10; color: #0b5c0b; padding: 10px; font-size: 16px; font-weight: bold; text-align: center; border-radius: 6px; margin-top: 8px; }
-        input[type="text"], input[type="number"] { width: 100%; padding: 15px; font-size: 18px; box-sizing: border-box; border: 2px solid #ccc; border-radius: 4px; outline: none; margin-top: 5px; }
-        input[type="text"]:focus, input[type="number"]:focus { border-color: #0078d4; }
-        .alert { background-color: #d83b01; color: white; padding: 15px; font-weight: bold; font-size: 15px; border-radius: 4px; margin-top: 15px; display: none; text-align: center; word-break: break-all; }
-        .success { background-color: #107c10; color: white; padding: 10px; font-weight: bold; border-radius: 4px; margin-top: 10px; display: none; text-align: center; }
-        .prendas-editable { color: #0078d4; text-decoration: underline; cursor: pointer; font-weight: 600; padding: 2px 4px; }
-        .prendas-editable:hover { background: #eaf3fc; border-radius: 3px; }
-        .btn { margin-top:10px; width:100%; background:#0078d4; color:white; border:none; padding:12px; font-size:16px; border-radius:4px; cursor:pointer; }
-        .btn:hover { background: #005a9e; }
-        .btn-secundario { background:#5c6673; }
-        .btn-secundario:hover { background:#454d57; }
-        .btn-peligro { background:#a80000; }
-        .btn-peligro:hover { background:#7a0000; }
-        .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:999; padding:20px; }
-        .modal-box { background:white; border-radius:8px; padding:20px; max-width:420px; width:100%; }
-        .modal-box h3 { margin-top:0; color:#a80000; }
-        .modal-box ul { list-style: disc; padding-left: 22px; margin-bottom: 16px; }
-        .modal-box li { display:list-item; border-bottom:none; padding:3px 0; font-size:15px; }
-    </style>
-</head>
-<body>
+// server.js
+// Backend que sustituye a los 8 flujos de Power Automate con disparador
+// HTTP de la app "Control de Bultos". Cada función de aquí abajo hace
+// exactamente lo mismo que hacía su flujo equivalente.
 
-<div class="container">
-    <h2>Control de Bultos</h2>
+require('dotenv').config();
+const express = require('express');
+const crypto = require('crypto');
+const { listItems, createItem, updateItem } = require('./graphClient');
 
-    <!-- Paso 1: Identificación del operario -->
-    <div class="setup-box" id="setupBox">
-        <label for="operarioSearchInput"><strong>Identifícate para empezar:</strong></label><br>
-        <input type="text" id="operarioSearchInput" placeholder="Buscar tu Nº de operario..." autocomplete="off">
-        <div class="manip-list" id="operarioList" style="margin-top:8px; max-height:180px;">
-            <div style="padding:14px; text-align:center; color:#666;">Cargando listado...</div>
-        </div>
-        <div id="operarioSeleccionadoBox" style="display:none; margin-top:10px; text-align:left; background:#fff; border:1px solid #ccc; border-radius:4px; padding:10px 14px;">
-            Nº Operario: <strong id="lblOperarioIdSeleccionado"></strong> — <span id="lblOperarioNombreSeleccionado" style="font-size:20px; font-weight:bold; color:#0078d4;"></span>
-        </div>
-        <button class="btn" id="comenzarTurnoBtn" style="display:none;" onclick="guardarOperario()">Comenzar Turno</button>
-        <button class="btn" style="margin-top:8px; background:#6f42c1;" onclick="abrirCalidad()">Calidad</button>
-    </div>
+const app = express();
+app.use(express.json());
 
-    <!-- Paso 2: Selección de manipulación (inicial o por cambio) -->
-    <div class="manip-box" id="manipBox">
-        <h3>Selecciona la manipulación</h3>
-        <input type="text" id="manipSearchInput" placeholder="Buscar manipulación..." style="width:100%; padding:12px; font-size:16px; border:2px solid #ccc; border-radius:4px; margin-bottom:10px; box-sizing:border-box;" autocomplete="off">
-        <div class="manip-list" id="manipList">
-            <div style="padding:14px; text-align:center; color:#666;">Cargando listado...</div>
-        </div>
-        <button class="btn btn-secundario" id="cancelarManipBtn" style="display:none;" onclick="cerrarSelectorManipulacion()">Cancelar</button>
-    </div>
-
-    <!-- Panel de trabajo del escáner -->
-    <div id="scannerSection" style="display:none;">
-        <div class="counter" id="contador">Operario: <span id="lblOperario"></span> <span id="lblOperarioNombreActual" style="color:#333; font-size:18px; font-weight:600;"></span></div>
-        <div class="manip-actual">Manipulación actual: <strong id="lblManipulacionActual">-</strong></div>
-
-        <div id="divEscaneo">
-            <div id="cajaMediasBox" style="text-align:left; margin-bottom:10px;">
-                <label style="display:flex; align-items:center; gap:8px; font-size:15px;">
-                    <input type="checkbox" id="cajaMediasCheckbox" style="width:20px; height:20px;">
-                    Caja a medias
-                </label>
-            </div>
-            <input type="text" id="codeinput" placeholder="Dispara aquí el bulto..." autocomplete="off">
-        </div>
-
-        <div id="divPrendas" class="prendas-box">
-            <h3 style="margin-top:0; color:#333;">Bulto leído: <span id="lblCodigoActual" style="color:#0078d4;"></span></h3>
-            <label for="prendasInput"><strong>Número de prendas:</strong></label><br>
-            <input type="number" id="prendasInput" placeholder="Introduce el número de prendas..." min="1" autocomplete="off">
-            <button class="btn" style="background:#107c10;" onclick="enviarDatos(prendasInput.value)">Guardar Bulto</button>
-        </div>
-
-        <div id="successBox" class="success">¡Bulto guardado correctamente en la nube!</div>
-        <div id="alertBox" class="alert">¡ATENCIÓN! Error.</div>
-
-        <!-- Solo se muestra el último bulto guardado, editable -->
-        <div id="ultimoBultoBox" style="display:none; background:#fafafa; border:1px solid #ddd; border-radius:4px; padding:10px 14px; margin-top:15px; font-size:15px;">
-            <span class="info" id="ultimoBultoInfo"></span>
-        </div>
-
-        <div style="display:flex; gap:8px; margin-top:15px;">
-            <div class="bottom-counter" id="bottomCounter" style="margin-top:0; flex:1; font-size:15px; padding:10px 6px;">Bultos: 0</div>
-            <div class="bottom-counter" id="prendasCounter" style="margin-top:0; flex:1; font-size:15px; padding:10px 6px; background-color:#fff4ce; border-color:#ffaa44; color:#8a5a00;">Prendas: 0</div>
-        </div>
-        <div class="productividad" id="productividadBox">Productividad: 0,0 prendas/hora</div>
-
-        <button class="btn btn-secundario" style="margin-top:15px;" onclick="abrirCambioManipulacion()">Cambiar Manipulación</button>
-        <button class="btn" style="margin-top:8px; background:#e67e22;" onclick="verObservaciones()">Ver observaciones</button>
-        <button class="btn" id="descansoBtn" style="margin-top:8px; background:#5c6673;" onclick="toggleDescanso()">Iniciar Descanso</button>
-        <button class="btn btn-peligro" tabindex="-1" onclick="cambiarOperario()">Finalizar / Cambiar Operario</button>
-    </div>
-</div>
-
-<!-- Modal de Calidad: comprobar y corregir prendas de cualquier bulto -->
-<div class="modal-overlay" id="calidadModal">
-    <div class="modal-box">
-        <h3 style="color:#6f42c1;">Calidad: comprobar bulto</h3>
-        <input type="text" id="calidadCodigoInput" placeholder="Escanea el código del bulto..." autocomplete="off" style="margin-bottom:10px;">
-        <div id="calidadResultado" style="font-size:15px; margin-bottom:10px;"></div>
-        <button class="btn btn-secundario" onclick="cerrarCalidad()">Cerrar</button>
-    </div>
-</div>
-
-<!-- Modal de recordatorios al elegir manipulación -->
-<div class="modal-overlay" id="recordatoriosModal">
-    <div class="modal-box">
-        <h3>Antes de empezar, ten en cuenta:</h3>
-        <ul id="recordatoriosLista"></ul>
-        <button class="btn" onclick="confirmarManipulacionSeleccionada()">Entendido, empezar</button>
-    </div>
-</div>
-
-<!-- Modal de consulta de observaciones (solo informativo, en cualquier momento) -->
-<div class="modal-overlay" id="observacionesModal">
-    <div class="modal-box">
-        <h3>Observaciones de la manipulación</h3>
-        <ul id="observacionesLista"></ul>
-        <button class="btn btn-secundario" onclick="cerrarObservaciones()">Cerrar</button>
-    </div>
-</div>
-
-<script>
-    // === Servidor propio (Azure) ===
-    const API_BASE = "https://gmac.eicodec.org/api-bultos";
-    const DEVICE_KEY = "qkoNBzZWQncxcd9BdpI_OXSvWBjmRu1-";
-    const FLOW_URL = `${API_BASE}/guardar-bulto`;
-    const FLOW_URL_EDITAR = `${API_BASE}/editar-prendas`;
-    const FLOW_URL_MANIPULACIONES = `${API_BASE}/manipulaciones`;
-    const FLOW_URL_COMPROBAR = `${API_BASE}/comprobar-bulto`;
-    const FLOW_URL_SESION_INICIO = `${API_BASE}/iniciar-sesion`;
-    const FLOW_URL_SESION_FIN = `${API_BASE}/finalizar-sesion`;
-    const FLOW_URL_DETALLE = `${API_BASE}/detalle-bulto`;
-    const FLOW_URL_OPERARIOS = `${API_BASE}/operarios`;
-
-    let sesionActualId = null;
-
-    async function iniciarSesion(nombreManipulacion) {
-        try {
-            const r = await fetch(FLOW_URL_SESION_INICIO, {
-                method: 'POST', headers: {'Content-Type':'application/json', 'X-Device-Key': DEVICE_KEY},
-                body: JSON.stringify({ operario: operarioActual, manipulacion: nombreManipulacion })
-            });
-            const data = await r.json();
-            sesionActualId = data.id;
-        } catch (e) { console.error('No se pudo iniciar sesión', e); }
+// ============================================================
+// NOMBRES INTERNOS DE COLUMNA
+// ------------------------------------------------------------
+// SharePoint a veces usa, por dentro, un nombre distinto al que ves en
+// pantalla (sobre todo si el nombre visible tiene tildes o símbolos).
+// Confirmados: Codigo (C_x00f3_digo), ClaveUnica (Clave), Manipulacion y los
+// de ListadoOperadores. El resto se han puesto igual que el nombre visible;
+// si alguno no coincidiera, el servidor dará error 500 y en su registro
+// aparecerá el nombre de la columna que falla (ver README, apartado
+// "Cómo comprobar el nombre interno de una columna").
+// ============================================================
+const COL = {
+    registroBultos: {
+        codigo: 'C_x00f3_digo',       // columna "Codigo"
+        claveUnica: 'Clave',          // columna "ClaveUnica"
+        operario: 'Operario',
+        manipulacion: 'Manipulacion',
+        prendas: 'Prendas',
+        fecha: 'Fecha',
+        fechaHora: 'FechaHora',
+        cajaMedias: 'CajaMedias',
+        observaciones: 'Observaciones' // columna nueva (texto) para el tipo de reoperado
+    },
+    manipulaciones: {
+        codigo: 'Codigo',
+        recordatorio: 'Recordatorio',
+        ordenNumero: 'OrdenNumero'
+    },
+    sesiones: {
+        operario: 'Operario',
+        manipulacion: 'Manipulacion',
+        inicio: 'Inicio',
+        fin: 'Fin'
+    },
+    operadores: {
+        operario: 'Title',   // primera columna de la lista, siempre "Title" por dentro
+        nombre: 'field_1',   // columna "NOMBRE"
+        contrato: 'field_2'  // columna "CONTRATO"
     }
+};
 
-    async function finalizarSesionActual() {
-        if (!sesionActualId) return;
-        const idParaCerrar = sesionActualId;
-        sesionActualId = null;
-        try {
-            await fetch(FLOW_URL_SESION_FIN, {
-                method: 'POST', headers: {'Content-Type':'application/json', 'X-Device-Key': DEVICE_KEY},
-                body: JSON.stringify({ id: idParaCerrar })
-            });
-        } catch (e) { console.error('No se pudo cerrar sesión', e); }
+const LISTA = {
+    registroBultos: process.env.LISTA_REGISTRO_BULTOS,
+    manipulaciones: process.env.LISTA_MANIPULACIONES,
+    sesiones: process.env.LISTA_SESIONES,
+    operadores: process.env.LISTA_OPERADORES
+};
+
+// ============================================================
+// SEGURIDAD: CORS + clave de dispositivo
+// ============================================================
+app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', process.env.ALLOWED_ORIGIN || '');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Device-Key');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+});
+
+app.use((req, res, next) => {
+    const clave = req.header('X-Device-Key');
+    if (!clave || clave !== process.env.DEVICE_KEY) {
+        return res.status(401).json({ error: 'Clave de dispositivo no válida.' });
     }
+    next();
+});
 
-    let operarioActual = "";
-    let manipulacionActual = "";
-    let manipulacionPendienteSeleccion = null; // {codigo, recordatorio}
-    let recordatorioPendiente = "";
-    let recordatorioActual = ""; // observaciones de la manipulación en curso (para volver a consultarlas)
-    let esCambioDeManipulacion = false;
-    let codigoPendiente = "";
-    let totalBultos = 0;
-    let totalPrendasGlobal = 0;
-    const bultosSesion = new Set(); // solo para feedback inmediato; el bloqueo real lo hace el servidor
+// ============================================================
+// VALIDACIONES (las mismas reglas que ya tiene la app)
+// ============================================================
+function codigoBultoValido(codigo) {
+    return typeof codigo === 'string' && /^0038\d{16}$/.test(codigo);
+}
+function textoValido(valor, longitudMax = 100) {
+    return typeof valor === 'string' && valor.trim().length > 0 && valor.length <= longitudMax;
+}
+function prendasValidas(valor) {
+    const n = parseInt(valor, 10);
+    return Number.isInteger(n) && n > 0 && n <= 100000;
+}
 
-    // Productividad: se acumula desde que se seleccionó/cambió de manipulación
-    let inicioManipulacionTs = null;
-    let prendasManipulacion = 0;
-    let productividadTimer = null;
-
-    // Descanso: el tiempo en pausa no cuenta para la productividad
-    let enDescanso = false;
-    let pausaInicioTs = null;
-    let pausaAcumuladaMs = 0;
-
-    const setupBox = document.getElementById('setupBox');
-    const manipBox = document.getElementById('manipBox');
-    const manipList = document.getElementById('manipList');
-    const cancelarManipBtn = document.getElementById('cancelarManipBtn');
-    const scannerSection = document.getElementById('scannerSection');
-    const operarioSearchInput = document.getElementById('operarioSearchInput');
-    const operarioList = document.getElementById('operarioList');
-    const operarioSeleccionadoBox = document.getElementById('operarioSeleccionadoBox');
-    const lblOperarioIdSeleccionado = document.getElementById('lblOperarioIdSeleccionado');
-    const lblOperarioNombreSeleccionado = document.getElementById('lblOperarioNombreSeleccionado');
-    const comenzarTurnoBtn = document.getElementById('comenzarTurnoBtn');
-    const lblOperario = document.getElementById('lblOperario');
-    const lblManipulacionActual = document.getElementById('lblManipulacionActual');
-    const inputField = document.getElementById('codeinput');
-    const divEscaneo = document.getElementById('divEscaneo');
-    const divPrendas = document.getElementById('divPrendas');
-    const lblCodigoActual = document.getElementById('lblCodigoActual');
-    const prendasInput = document.getElementById('prendasInput');
-    const ultimoBultoBox = document.getElementById('ultimoBultoBox');
-    const ultimoBultoInfo = document.getElementById('ultimoBultoInfo');
-    const bottomCounter = document.getElementById('bottomCounter');
-    const prendasCounter = document.getElementById('prendasCounter');
-    const productividadBox = document.getElementById('productividadBox');
-    const alertBox = document.getElementById('alertBox');
-    const successBox = document.getElementById('successBox');
-    const recordatoriosModal = document.getElementById('recordatoriosModal');
-    const recordatoriosLista = document.getElementById('recordatoriosLista');
-
-    window.onload = function() {
-        operarioSearchInput.focus();
-        cargarOperadores();
+// Envuelve cada ruta para no repetir el try/catch en las 8 funciones.
+function ruta(fn) {
+    return async (req, res) => {
+        try {
+            await fn(req, res);
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Error interno del servidor.' });
+        }
     };
+}
 
-    function guardarOperario() {
-        if (!operarioActual) {
-            alert("Por favor, selecciona tu Nº de operario de la lista.");
-            return;
-        }
-        lblOperario.textContent = operarioActual;
-        document.getElementById('lblOperarioNombreActual').textContent = nombreOperarioActual ? `— ${nombreOperarioActual}` : '';
-        setupBox.style.display = 'none';
-        esCambioDeManipulacion = false;
-        abrirSelectorManipulacion();
+// ============================================================
+// 1) GuardarBulto
+// ============================================================
+app.post('/guardar-bulto', ruta(async (req, res) => {
+    const { operario, codigo, manipulacion, prendas, cajaMedias, reoperado, observaciones } = req.body;
+
+    // REOPERADO: prendas sueltas sin etiqueta de bulto -> fila sin código
+    const esReoperado = reoperado === true;
+    if (esReoperado && !(typeof manipulacion === 'string' && manipulacion.trim().toUpperCase() === 'REOPERADO')) {
+        return res.status(400).json({ error: 'Manipulación no válida para reoperado.' });
     }
 
-    // ---------- Selección de operario ----------
-
-    let operadoresData = [];
-    let nombreOperarioActual = "";
-
-    async function cargarOperadores() {
-        operarioList.innerHTML = `<div style="padding:14px; text-align:center; color:#666;">Cargando listado...</div>`;
-        try {
-            const response = await fetch(FLOW_URL_OPERARIOS, {
-                method: 'POST',
-                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Device-Key': DEVICE_KEY },
-                body: JSON.stringify({})
-            });
-            if (!response.ok) throw new Error(`Código ${response.status}`);
-            const data = await response.json();
-            if (!Array.isArray(data) || data.length === 0) {
-                operarioList.innerHTML = `<div style="padding:14px; text-align:center; color:#a80000;">No se ha podido cargar el listado.</div>`;
-                return;
-            }
-            operadoresData = data;
-            renderOperarioList(data);
-        } catch (error) {
-            operarioList.innerHTML = `<div style="padding:14px; text-align:center; color:#a80000;">Error cargando operarios: ${error.message}</div>`;
-        }
+    if (esReoperado && !textoValido(observaciones, 200)) {
+        return res.status(400).json({ error: 'Indica el tipo de reoperado.' });
     }
 
-    async function asegurarOperadoresCargados() {
-        if (operadoresData.length > 0) return;
-        try {
-            const response = await fetch(FLOW_URL_OPERARIOS, {
-                method: 'POST',
-                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Device-Key': DEVICE_KEY },
-                body: JSON.stringify({})
-            });
-            const data = await response.json();
-            if (Array.isArray(data)) operadoresData = data;
-        } catch (e) {
-            // si falla, Calidad simplemente no podrá mostrar el nombre
-        }
-    }
+    if (!esReoperado && !codigoBultoValido(codigo)) return res.status(400).json({ error: 'Código de bulto no válido.' });
+    if (!textoValido(operario)) return res.status(400).json({ error: 'Operario no válido.' });
+    if (!textoValido(manipulacion)) return res.status(400).json({ error: 'Manipulación no válida.' });
+    if (!prendasValidas(prendas)) return res.status(400).json({ error: 'Número de prendas no válido.' });
 
-    function renderOperarioList(data) {
-        operarioList.innerHTML = '';
-        if (data.length === 0) {
-            operarioList.innerHTML = `<div style="padding:14px; text-align:center; color:#666;">Sin resultados.</div>`;
-            return;
-        }
-        data.forEach(o => {
-            const div = document.createElement('div');
-            div.className = 'manip-item';
-            div.textContent = o.operario;
-            div.onclick = () => seleccionarOperario(o.operario, o.nombre || '');
-            operarioList.appendChild(div);
+    const esCajaMedias = !esReoperado && cajaMedias === true;
+    const ahora = new Date().toISOString();
+
+    if (!esCajaMedias && !esReoperado) {
+        const existentes = await listItems(LISTA.registroBultos, {
+            filtro: `fields/${COL.registroBultos.codigo} eq '${codigo}'`
         });
+        if (existentes.length > 0) {
+            return res.status(409).json({ error: 'Este bulto ya ha sido registrado.' });
+        }
     }
 
-    operarioSearchInput.addEventListener('input', (e) => {
-        const texto = normalizarTexto(e.target.value);
-        const filtrado = operadoresData.filter(o => normalizarTexto(o.operario).includes(texto));
-        renderOperarioList(filtrado);
+    const claveUnica = (esCajaMedias || esReoperado) ? crypto.randomUUID() : codigo;
+
+    await createItem(LISTA.registroBultos, {
+        [COL.registroBultos.codigo]: esReoperado ? '' : codigo,
+        [COL.registroBultos.operario]: operario,
+        [COL.registroBultos.manipulacion]: manipulacion,
+        [COL.registroBultos.prendas]: parseInt(prendas, 10),
+        [COL.registroBultos.fecha]: ahora,
+        [COL.registroBultos.fechaHora]: ahora,
+        [COL.registroBultos.cajaMedias]: esCajaMedias,
+        [COL.registroBultos.claveUnica]: claveUnica,
+        ...(esReoperado ? { [COL.registroBultos.observaciones]: observaciones.trim() } : {})
     });
 
-    function seleccionarOperario(codigo, nombre) {
-        operarioActual = codigo;
-        nombreOperarioActual = nombre;
-        lblOperarioIdSeleccionado.textContent = codigo;
-        lblOperarioNombreSeleccionado.textContent = nombre;
-        operarioSeleccionadoBox.style.display = 'block';
-        comenzarTurnoBtn.style.display = 'block';
+    res.status(200).json({ ok: true });
+}));
+
+// ============================================================
+// 2) EditarPrendas
+// ============================================================
+app.post('/editar-prendas', ruta(async (req, res) => {
+    const { operario, codigo, prendas, manipulacion } = req.body;
+
+    if (!codigoBultoValido(codigo)) return res.status(400).json({ error: 'Código de bulto no válido.' });
+    if (!prendasValidas(prendas)) return res.status(400).json({ error: 'Número de prendas no válido.' });
+
+    let filtro = `fields/${COL.registroBultos.codigo} eq '${codigo}'`;
+    if (textoValido(operario)) {
+        filtro += ` and fields/${COL.registroBultos.operario} eq '${operario.replace(/'/g, "''")}'`;
     }
 
-    // ---------- Selección / cambio de manipulación ----------
+    const filas = await listItems(LISTA.registroBultos, { filtro });
+    if (filas.length === 0) return res.status(404).json({ error: 'Bulto no encontrado.' });
 
-    let manipulacionesData = [];
-
-    async function abrirSelectorManipulacion() {
-        manipBox.style.display = 'block';
-        cancelarManipBtn.style.display = esCambioDeManipulacion ? 'block' : 'none';
-        document.getElementById('manipSearchInput').value = '';
-        manipList.innerHTML = `<div style="padding:14px; text-align:center; color:#666;">Cargando listado...</div>`;
-
-        try {
-            const response = await fetch(FLOW_URL_MANIPULACIONES, {
-                method: 'POST',
-                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Device-Key': DEVICE_KEY },
-                body: JSON.stringify({})
-            });
-            if (!response.ok) throw new Error(`Código ${response.status}`);
-            const data = await response.json();
-
-            if (!Array.isArray(data) || data.length === 0) {
-                manipList.innerHTML = `<div style="padding:14px; text-align:center; color:#a80000;">No se ha podido cargar el listado.</div>`;
-                return;
-            }
-            manipulacionesData = data;
-            renderManipList(data);
-        } catch (error) {
-            manipList.innerHTML = `<div style="padding:14px; text-align:center; color:#a80000;">Error cargando manipulaciones: ${error.message}</div>`;
-        }
+    const campos = { [COL.registroBultos.prendas]: parseInt(prendas, 10) };
+    if (textoValido(manipulacion)) {
+        campos[COL.registroBultos.manipulacion] = manipulacion;
     }
 
-    function normalizarTexto(str) {
-        return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    }
+    await updateItem(LISTA.registroBultos, filas[0].id, campos);
+    res.status(200).json({ ok: true });
+}));
 
-    function renderManipList(data) {
-        manipList.innerHTML = '';
-        if (data.length === 0) {
-            manipList.innerHTML = `<div style="padding:14px; text-align:center; color:#666;">Sin resultados.</div>`;
-            return;
-        }
-        data.forEach(m => {
-            const div = document.createElement('div');
-            div.className = 'manip-item';
-            div.textContent = m.codigo;
-            div.onclick = () => seleccionarManipulacion(m.codigo, m.recordatorio || '');
-            manipList.appendChild(div);
-        });
-    }
-
-    document.getElementById('manipSearchInput').addEventListener('input', (e) => {
-        const texto = normalizarTexto(e.target.value);
-        const filtrado = manipulacionesData.filter(m => normalizarTexto(m.codigo).includes(texto));
-        renderManipList(filtrado);
+// ============================================================
+// 3) ObtenerManipulaciones
+// ============================================================
+app.post('/manipulaciones', ruta(async (req, res) => {
+    const filas = await listItems(LISTA.manipulaciones, {
+        orden: `fields/${COL.manipulaciones.ordenNumero} asc`
     });
+    const resultado = filas.map(f => ({
+        codigo: f.fields[COL.manipulaciones.codigo],
+        recordatorio: f.fields[COL.manipulaciones.recordatorio] || ''
+    }));
+    res.status(200).json(resultado);
+}));
 
-    function seleccionarManipulacion(codigo, recordatorio) {
-        manipulacionPendienteSeleccion = codigo;
-        recordatorioPendiente = recordatorio || '';
-        recordatoriosLista.innerHTML = '';
-        const lineas = (recordatorio || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+// ============================================================
+// 4) ComprobarBulto
+// ============================================================
+app.post('/comprobar-bulto', ruta(async (req, res) => {
+    const { codigo } = req.body;
+    if (!codigoBultoValido(codigo)) return res.status(400).json({ error: 'Código de bulto no válido.' });
 
-        if (lineas.length === 0) {
-            confirmarManipulacionSeleccionada();
-            return;
-        }
-        lineas.forEach(linea => {
-            const li = document.createElement('li');
-            li.textContent = linea;
-            recordatoriosLista.appendChild(li);
-        });
-        recordatoriosModal.style.display = 'flex';
-    }
-
-    function confirmarManipulacionSeleccionada() {
-        finalizarSesionActual().then(() => iniciarSesion(manipulacionPendienteSeleccion));
-        recordatoriosModal.style.display = 'none';
-        manipulacionActual = manipulacionPendienteSeleccion;
-        recordatorioActual = recordatorioPendiente;
-        lblManipulacionActual.textContent = manipulacionActual;
-
-        // Reinicia el contador de productividad para la nueva manipulación
-        inicioManipulacionTs = Date.now();
-        prendasManipulacion = 0;
-        enDescanso = false;
-        pausaInicioTs = null;
-        pausaAcumuladaMs = 0;
-        const descansoBtn = document.getElementById('descansoBtn');
-        if (descansoBtn) { descansoBtn.textContent = 'Iniciar Descanso'; descansoBtn.style.background = '#5c6673'; }
-        actualizarProductividad();
-        if (productividadTimer) clearInterval(productividadTimer);
-        productividadTimer = setInterval(actualizarProductividad, 30000);
-
-        manipBox.style.display = 'none';
-        scannerSection.style.display = 'block';
-        divEscaneo.style.display = 'block';
-        divPrendas.style.display = 'none';
-        inputField.focus();
-    }
-
-    function abrirCambioManipulacion() {
-        esCambioDeManipulacion = true;
-        scannerSection.style.display = 'none';
-        abrirSelectorManipulacion();
-    }
-
-    function cerrarSelectorManipulacion() {
-        manipBox.style.display = 'none';
-        scannerSection.style.display = 'block';
-        inputField.focus();
-    }
-
-    function actualizarProductividad() {
-        if (!inicioManipulacionTs) return;
-        const ahora = Date.now();
-        const pausaEnCurso = (enDescanso && pausaInicioTs) ? (ahora - pausaInicioTs) : 0;
-        const msTrabajados = (ahora - inicioManipulacionTs) - pausaAcumuladaMs - pausaEnCurso;
-        const horas = Math.max(msTrabajados, 0) / 3600000;
-        const productividad = horas > 0 ? (prendasManipulacion / horas) : 0;
-        productividadBox.textContent = `Productividad (${manipulacionActual}): ${productividad.toFixed(1)} prendas/hora`;
-    }
-
-    function toggleDescanso() {
-        const btn = document.getElementById('descansoBtn');
-        if (!enDescanso) {
-            enDescanso = true;
-            pausaInicioTs = Date.now();
-            inputField.disabled = true;
-            btn.textContent = 'Reanudar (en descanso)';
-            finalizarSesionActual().then(() => iniciarSesion('DESCANSO'));
-            btn.style.background = '#ffaa44';
-        } else {
-            enDescanso = false;
-            pausaAcumuladaMs += (Date.now() - pausaInicioTs);
-            pausaInicioTs = null;
-            inputField.disabled = false;
-            inputField.focus();
-            btn.textContent = 'Iniciar Descanso';
-            finalizarSesionActual().then(() => iniciarSesion(manipulacionActual));
-            btn.style.background = '#5c6673';
-            actualizarProductividad();
-        }
-    }
-
-    function verObservaciones() {
-        const lista = document.getElementById('observacionesLista');
-        lista.innerHTML = '';
-        const lineas = (recordatorioActual || '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
-        if (lineas.length === 0) {
-            const li = document.createElement('li');
-            li.textContent = 'Esta manipulación no tiene observaciones.';
-            lista.appendChild(li);
-        } else {
-            lineas.forEach(linea => {
-                const li = document.createElement('li');
-                li.textContent = linea;
-                lista.appendChild(li);
-            });
-        }
-        document.getElementById('observacionesModal').style.display = 'flex';
-    }
-
-    function cerrarObservaciones() {
-        document.getElementById('observacionesModal').style.display = 'none';
-        if (!enDescanso && scannerSection.style.display !== 'none' && divPrendas.style.display === 'none') inputField.focus();
-    }
-
-    function cambiarOperario() {
-        if (confirm("¿Seguro que deseas finalizar la sesión de este operario?")) {
-            finalizarSesionActual();
-            location.reload();
-        }
-    }
-
-    // Mantener el foco en el campo de lectura de bultos
-    document.addEventListener('click', (e) => {
-        if (e.target.closest && (e.target.closest('#ultimoBultoBox') || e.target.closest('#calidadModal') || e.target.closest('#observacionesModal'))) return; // no interferir en edición de prendas, Calidad ni observaciones
-        if (scannerSection.style.display !== 'none' && divPrendas.style.display === 'none') {
-            inputField.focus();
-        }
+    const filas = await listItems(LISTA.registroBultos, {
+        filtro: `fields/${COL.registroBultos.codigo} eq '${codigo}'`
     });
+    res.status(200).json({ existe: filas.length > 0 });
+}));
 
-    // Guardián: fuerza el foco al campo correcto antes de que cualquier tecla
-    // (incluida una perdida de la pistola) pueda llegar a otro elemento
-    document.addEventListener('keydown', function(e) {
-        if (enDescanso) return; // en descanso no se fuerza el foco al escáner
-        if (document.activeElement && ['inputEdicionPrendas', 'calidadCodigoInput', 'calidadManipInput', 'calidadPrendasInput'].includes(document.activeElement.id)) return; // no interferir mientras se edita o se usa Calidad
-        let campoCorrecto;
-        if (setupBox.style.display !== 'none') {
-            campoCorrecto = operarioSearchInput;
-        } else if (divPrendas.style.display === 'block') {
-            campoCorrecto = prendasInput;
-        } else if (scannerSection.style.display !== 'none') {
-            campoCorrecto = inputField;
-        } else {
-            return; // pantalla de selección de manipulación: no forzar foco
-        }
-        if (document.activeElement !== campoCorrecto) {
-            campoCorrecto.focus();
-        }
-    }, true);
-
-    // Filtro estricto para ignorar comandos extra de la pistola al leer el bulto
-    async function procesarCodigoEscaneado() {
-        const codigo = inputField.value.trim();
-        if (!codigo) return;
-        inputField.value = '';
-        alertBox.style.display = 'none';
-        successBox.style.display = 'none';
-
-        if (!/^0038\d{16}$/.test(codigo)) {
-            alertBox.textContent = "Atención, no estás escaneando el código de bulto.";
-            alertBox.style.display = 'block';
-            playBeep(150);
-            return;
-        }
-
-        const esCajaMedias = document.getElementById('cajaMediasCheckbox').checked;
-
-        if (!esCajaMedias) {
-            try {
-                const resp = await fetch(FLOW_URL_COMPROBAR, {
-                    method: 'POST', headers: {'Content-Type':'application/json', 'X-Device-Key': DEVICE_KEY},
-                    body: JSON.stringify({ codigo })
-                });
-                const data = await resp.json();
-                if (data.existe) {
-                    alertBox.textContent = "Este bulto ya ha sido registrado.";
-                    alertBox.style.display = 'block';
-                    playBeep(150);
-                    return;
-                }
-            } catch (e) {
-                // si falla la comprobación previa, seguimos igualmente; el guardado final es quien de verdad protege
-            }
-        }
-
-        codigoPendiente = codigo;
-        lblCodigoActual.textContent = codigo;
-        divEscaneo.style.display = 'none';
-        divPrendas.style.display = 'block';
-        prendasInput.value = '';
-        prendasInput.focus();
+// ============================================================
+// 5) IniciarSesion
+// ============================================================
+app.post('/iniciar-sesion', ruta(async (req, res) => {
+    const { operario, manipulacion } = req.body;
+    if (!textoValido(operario) || !textoValido(manipulacion)) {
+        return res.status(400).json({ error: 'Datos de sesión no válidos.' });
     }
-
-    inputField.addEventListener('keydown', function(event) {
-        if (event.key.startsWith('F') && event.key.length > 1) { event.preventDefault(); return; }
-
-        if (event.key === 'Enter') {
-            event.preventDefault();
-            procesarCodigoEscaneado();
-        }
+    const nueva = await createItem(LISTA.sesiones, {
+        [COL.sesiones.operario]: operario,
+        [COL.sesiones.manipulacion]: manipulacion,
+        [COL.sesiones.inicio]: new Date().toISOString()
     });
+    res.status(200).json({ id: nueva.id });
+}));
 
-    // Dispara solo en cuanto se completan los 20 dígitos (la pistola no manda Enter)
-    inputField.addEventListener('input', function() {
-        if (/^\d{20}$/.test(this.value.trim())) {
-            procesarCodigoEscaneado();
-        }
+// ============================================================
+// 6) FinalizarSesion
+// ============================================================
+app.post('/finalizar-sesion', ruta(async (req, res) => {
+    const { id } = req.body;
+    if (!textoValido(String(id || ''), 50)) return res.status(400).json({ error: 'Id de sesión no válido.' });
+
+    await updateItem(LISTA.sesiones, id, {
+        [COL.sesiones.fin]: new Date().toISOString()
     });
+    res.status(200).json({ ok: true });
+}));
 
-    prendasInput.addEventListener('keydown', function(event) {
-        if (event.key === 'Enter') {
-            event.preventDefault();
-            enviarDatos(prendasInput.value);
-        }
+// ============================================================
+// 7) ObtenerDetalleBulto
+// ============================================================
+app.post('/detalle-bulto', ruta(async (req, res) => {
+    const { codigo } = req.body;
+    if (!codigoBultoValido(codigo)) return res.status(400).json({ error: 'Código de bulto no válido.' });
+
+    const filas = await listItems(LISTA.registroBultos, {
+        filtro: `fields/${COL.registroBultos.codigo} eq '${codigo}'`
     });
+    if (filas.length === 0) return res.status(200).json({ encontrado: false });
 
-    async function enviarDatos(numPrendas) {
-        if (!numPrendas || !numPrendas.toString().trim()) {
-            alertBox.textContent = "Debes indicar el número de prendas.";
-            alertBox.style.display = 'block';
-            playBeep(150);
-            return;
-        }
-
-        const cajaMedias = document.getElementById('cajaMediasCheckbox').checked;
-        divPrendas.style.display = 'none';
-        divEscaneo.style.display = 'block';
-
-        try {
-            const response = await fetch(FLOW_URL, {
-                method: 'POST',
-                mode: 'cors',
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                    'X-Device-Key': DEVICE_KEY
-                },
-                body: JSON.stringify({
-                    operario: operarioActual,
-                    codigo: codigoPendiente,
-                    manipulacion: manipulacionActual,
-                    prendas: numPrendas ? numPrendas : "",
-                    fecha: new Date().toISOString(),
-                    cajaMedias: cajaMedias
-                })
-            });
-
-            if (response.status === 409) {
-                // Duplicado detectado en el servidor
-                alertBox.textContent = "Este bulto ya ha sido registrado.";
-                alertBox.style.display = 'block';
-                playBeep(150);
-            } else if (response.ok) {
-                bultosSesion.add(codigoPendiente);
-                totalBultos++;
-                totalPrendasGlobal += parseFloat(numPrendas) || 0;
-                prendasCounter.textContent = `Prendas: ${totalPrendasGlobal}`;
-
-                const prendasNum = parseFloat(numPrendas) || 0;
-                prendasManipulacion += prendasNum;
-                actualizarProductividad();
-
-                successBox.textContent = cajaMedias ? "¡Bulto (caja a medias) guardado correctamente!" : "¡Bulto guardado correctamente en la nube!";
-                agregarFilaHistorial(codigoPendiente, numPrendas);
-
-                bottomCounter.textContent = `Bultos: ${totalBultos}`;
-                successBox.style.display = 'block';
-                playBeep(600);
-            } else {
-                throw new Error(`Código ${response.status}`);
-            }
-        } catch (error) {
-            alertBox.textContent = "Error al guardar en la nube: " + error.message;
-            alertBox.style.display = 'block';
-            playBeep(100);
-        }
-
-        document.getElementById('cajaMediasCheckbox').checked = false;
-        codigoPendiente = "";
-        inputField.focus();
-    }
-
-    function renderInfoHtml(codigo, prendas) {
-        const texto = prendas ? prendas : 'añadir';
-        return `${codigo} (<span class="prendas-editable" title="Tocar para editar">${texto}</span> prendas) - [Guardado]`;
-    }
-
-    function engancharClickPrendas(contenedor, infoSpan) {
-        const span = infoSpan.querySelector('.prendas-editable');
-        if (span) span.addEventListener('click', () => iniciarEdicionPrendas(contenedor, infoSpan));
-    }
-
-    // Solo se muestra y se puede editar el ÚLTIMO bulto guardado
-    function agregarFilaHistorial(codigo, prendas) {
-        ultimoBultoBox.style.display = 'block';
-        ultimoBultoBox.dataset.codigo = codigo;
-        ultimoBultoBox.dataset.prendas = prendas || '';
-        ultimoBultoInfo.innerHTML = renderInfoHtml(codigo, prendas);
-        engancharClickPrendas(ultimoBultoBox, ultimoBultoInfo);
-    }
-
-    // Edición en línea: al tocar el número de prendas del último bulto guardado
-    function iniciarEdicionPrendas(contenedor, infoSpan) {
-        const codigo = contenedor.dataset.codigo;
-        const prendasActuales = contenedor.dataset.prendas || '';
-
-        infoSpan.innerHTML = '';
-        infoSpan.appendChild(document.createTextNode(codigo + ' ('));
-
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.inputMode = 'numeric';
-        input.pattern = '[0-9]*';
-        input.id = 'inputEdicionPrendas';
-        input.value = prendasActuales;
-        input.style.cssText = 'width:70px; padding:4px; font-size:14px; display:inline-block; margin:0 4px;';
-        infoSpan.appendChild(input);
-
-        infoSpan.appendChild(document.createTextNode(' prendas) '));
-
-        const confirmarBtn = document.createElement('button');
-        confirmarBtn.textContent = 'OK';
-        confirmarBtn.style.cssText = 'padding:4px 10px; font-size:13px; cursor:pointer;';
-        confirmarBtn.onclick = () => guardarEdicionPrendas(contenedor, infoSpan, input.value);
-        infoSpan.appendChild(confirmarBtn);
-
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                guardarEdicionPrendas(contenedor, infoSpan, input.value);
-            }
-        });
-
-        input.focus();
-        input.select();
-    }
-
-    async function guardarEdicionPrendas(contenedor, infoSpan, nuevoValor) {
-        const codigo = contenedor.dataset.codigo;
-        const valorAnterior = parseFloat(contenedor.dataset.prendas) || 0;
-
-        try {
-            const response = await fetch(FLOW_URL_EDITAR, {
-                method: 'POST',
-                mode: 'cors',
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                    'X-Device-Key': DEVICE_KEY
-                },
-                body: JSON.stringify({
-                    operario: operarioActual,
-                    codigo: codigo,
-                    fecha: new Date().toISOString(),
-                    prendas: nuevoValor
-                })
-            });
-
-            if (!response.ok) throw new Error(`Código ${response.status}`);
-
-            const valorNuevo = parseFloat(nuevoValor) || 0;
-            prendasManipulacion += (valorNuevo - valorAnterior);
-            totalPrendasGlobal += (valorNuevo - valorAnterior);
-            prendasCounter.textContent = `Prendas: ${totalPrendasGlobal}`;
-            actualizarProductividad();
-
-            contenedor.dataset.prendas = nuevoValor || '';
-            infoSpan.innerHTML = renderInfoHtml(codigo, nuevoValor);
-            engancharClickPrendas(contenedor, infoSpan);
-            playBeep(600);
-        } catch (error) {
-            alert("No se pudo actualizar: " + error.message);
-            infoSpan.innerHTML = renderInfoHtml(codigo, contenedor.dataset.prendas);
-            engancharClickPrendas(contenedor, infoSpan);
-        }
-    }
-
-    // ---------- Calidad: comprobar y corregir prendas de cualquier bulto ----------
-
-    function abrirCalidad() {
-        document.getElementById('calidadCodigoInput').value = '';
-        document.getElementById('calidadResultado').innerHTML = '';
-        document.getElementById('calidadModal').style.display = 'flex';
-        setTimeout(() => document.getElementById('calidadCodigoInput').focus(), 50);
-    }
-
-    function cerrarCalidad() {
-        document.getElementById('calidadModal').style.display = 'none';
-        if (operarioActual) {
-            inputField.focus();
-        } else {
-            operarioSearchInput.focus();
-        }
-    }
-
-    async function asegurarManipulacionesCargadas() {
-        if (manipulacionesData.length > 0) return;
-        try {
-            const response = await fetch(FLOW_URL_MANIPULACIONES, {
-                method: 'POST',
-                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-Device-Key': DEVICE_KEY },
-                body: JSON.stringify({})
-            });
-            const data = await response.json();
-            if (Array.isArray(data)) manipulacionesData = data;
-        } catch (e) {
-            // si falla, el desplegable de Calidad saldrá vacío; se puede reintentar en el siguiente escaneo
-        }
-    }
-
-    async function buscarBultoCalidad(inputEl) {
-        const codigo = inputEl.value.trim();
-        if (!codigo) return;
-        inputEl.value = ''; // se vacía para poder escanear el siguiente bulto
-        const resultadoBox = document.getElementById('calidadResultado');
-        resultadoBox.innerHTML = 'Buscando...';
-        try {
-            await asegurarManipulacionesCargadas();
-            await asegurarOperadoresCargados();
-            const resp = await fetch(FLOW_URL_DETALLE, {
-                method: 'POST', headers: {'Content-Type':'application/json', 'X-Device-Key': DEVICE_KEY},
-                body: JSON.stringify({ codigo })
-            });
-            const data = await resp.json();
-            if (!data.encontrado) {
-                resultadoBox.innerHTML = '<span style="color:#a80000;">Bulto no encontrado.</span>';
-            } else {
-                mostrarResultadoCalidad(codigo, data);
-            }
-        } catch (e) {
-            resultadoBox.innerHTML = '<span style="color:#a80000;">Error al consultar: ' + e.message + '</span>';
-        }
-        setTimeout(() => inputEl.focus(), 50);
-    }
-
-    document.getElementById('calidadCodigoInput').addEventListener('keydown', function(event) {
-        if (event.key === 'Enter') {
-            event.preventDefault();
-            buscarBultoCalidad(this);
-        }
+    const f = filas[0].fields;
+    res.status(200).json({
+        encontrado: true,
+        operario: f[COL.registroBultos.operario] || '',
+        manipulacion: f[COL.registroBultos.manipulacion] || '',
+        prendas: f[COL.registroBultos.prendas] || '',
+        fecha: f[COL.registroBultos.fecha] || ''
     });
+}));
 
-    // Dispara la búsqueda sola en cuanto se completan los 20 dígitos (la pistola no manda Enter)
-    document.getElementById('calidadCodigoInput').addEventListener('input', function() {
-        if (/^\d{20}$/.test(this.value.trim())) {
-            buscarBultoCalidad(this);
-        }
+// ============================================================
+// 8) ObtenerOperadores
+// ============================================================
+app.post('/operarios', ruta(async (req, res) => {
+    const filas = await listItems(LISTA.operadores, {
+        orden: `fields/${COL.operadores.operario} asc`
     });
-
-    function mostrarResultadoCalidad(codigo, data) {
-        const resultadoBox = document.getElementById('calidadResultado');
-        const opciones = manipulacionesData.map(m =>
-            `<option value="${m.codigo}" ${m.codigo === data.manipulacion ? 'selected' : ''}>${m.codigo}</option>`
-        ).join('');
-        const operadorEncontrado = operadoresData.find(o => o.operario === data.operario);
-        const nombreOperario = operadorEncontrado ? operadorEncontrado.nombre : '';
-        resultadoBox.innerHTML = `
-            <div><strong>Código:</strong> ${codigo}</div>
-            <div><strong>Operario:</strong> ${data.operario || '-'} — <span style="font-size:20px; font-weight:bold; color:#0078d4;">${nombreOperario}</span></div>
-            <div><strong>Fecha:</strong> ${data.fecha || '-'}</div>
-            <div style="margin-top:12px;"><strong style="font-size:19px;">Manipulación:</strong><br>
-                <select id="calidadManipInput" style="width:100%; padding:10px; font-size:20px; margin-top:6px; box-sizing:border-box;">
-                    <option value="">-- Selecciona --</option>
-                    ${opciones}
-                </select>
-            </div>
-            <div style="margin-top:16px;"><strong style="font-size:19px;">Prendas:</strong>
-                <input type="text" inputmode="numeric" pattern="[0-9]*" id="calidadPrendasInput" value="${data.prendas || ''}" style="width:110px; padding:10px; font-size:20px; margin-left:8px;">
-            </div>
-            <button id="calidadGuardarBtn" style="margin-top:10px; padding:8px 16px; font-size:14px; cursor:pointer;">Guardar cambios</button>
-        `;
-        document.getElementById('calidadGuardarBtn').onclick = () => guardarCambiosCalidad(codigo);
-    }
-
-    async function guardarCambiosCalidad(codigo) {
-        const nuevasPrendas = document.getElementById('calidadPrendasInput').value;
-        const nuevaManipulacion = document.getElementById('calidadManipInput').value;
-        try {
-            const response = await fetch(FLOW_URL_EDITAR, {
-                method: 'POST', headers: {'Content-Type':'application/json', 'X-Device-Key': DEVICE_KEY},
-                body: JSON.stringify({
-                    operario: operarioActual,
-                    codigo: codigo,
-                    fecha: new Date().toISOString(),
-                    prendas: nuevasPrendas,
-                    manipulacion: nuevaManipulacion
-                })
-            });
-            if (!response.ok) throw new Error(`Código ${response.status}`);
-            document.getElementById('calidadResultado').insertAdjacentHTML('beforeend', '<div style="color:#107c10; margin-top:6px;">Actualizado correctamente.</div>');
-            playBeep(600);
-            document.getElementById('calidadCodigoInput').focus();
-        } catch (error) {
-            alert("No se pudo actualizar: " + error.message);
-        }
-    }
-
-    function playBeep(freq) {
-        try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.frequency.value = freq;
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start();
-            setTimeout(() => osc.stop(), 150);
-        } catch(e) {}
-    }
-</script>
-
-</body>
-</html>
+    const resultado = filas.map(f => ({
+        operario: f.fields[COL.operadores.operario],
+        nombre: f.fields[COL.operadores.nombre] || ''
+    }));
+    res.status(200).json(resultado);
+}));
